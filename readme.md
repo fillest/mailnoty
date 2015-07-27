@@ -8,7 +8,7 @@
 #### Windows
 1. Install Python 2.7 https://www.python.org/downloads/
 2. Install PyQt4 for Py2.7 x32 binary package http://www.riverbankcomputing.co.uk/software/pyqt/download
-3. Download and unpack `mailnoty`
+3. Download and unpack `mailnoty` https://github.com/fillest/mailnoty/archive/master.zip
 
 Create C:/Users/youruser/mailnoty.ini
 ```ini
