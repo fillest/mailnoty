@@ -90,11 +90,20 @@ def fetch_recent_unread_entries (url, user, password):
             ))
     return total_unread_num, entries
 
-def fetch_mail_loop (mail, url, user, password, interval):
+def fetch_mail_loop (state, url, user, password, interval):
     while True:
-        # t = time.time()
-        mail[0] = fetch_recent_unread_entries(url, user, password) #atomic operation in cpython
-        # print time.time() - t
+        entries = []
+        is_error = False
+        try:
+            # t = time.time()
+            _total_unread_num, entries = fetch_recent_unread_entries(url, user, password)
+            # print time.time() - t
+        except FetchError:
+            is_error = True
+        with state.lock:
+            state.entries = entries
+            state.is_error = is_error
+        
         time.sleep(interval)
 
 class SystemTrayIcon (QtGui.QSystemTrayIcon):
@@ -103,8 +112,9 @@ class SystemTrayIcon (QtGui.QSystemTrayIcon):
 
         #https://icons8.com/web-app/63/message
         self.icon_has_new = QtGui.QIcon("mail_red.png")
-        self.nothing_new = QtGui.QIcon("mail_gray.png")
-        self.setIcon(self.nothing_new)
+        self.icon_nothing_new = QtGui.QIcon("mail_gray.png")
+        self.icon_error = QtGui.QIcon("mail_error.png")
+        self.setIcon(self.icon_nothing_new)
 
         self.menu = QtGui.QMenu(parent)
         self.setContextMenu(self.menu)
@@ -113,18 +123,30 @@ class SystemTrayIcon (QtGui.QSystemTrayIcon):
         self.activated.connect(self.onTrayIconActivated)
 
         self.last_entries = []
+        self.was_error = False
 
     def onTrayIconActivated(self, reason):
         if reason == QtGui.QSystemTrayIcon.Trigger:
             self.menu.exec_(QtGui.QCursor.pos())
         # elif reason == QtGui.QSystemTrayIcon.MiddleClick:
         #     self.setIcon(self.icon_has_new)
-        self.setIcon(self.nothing_new)
+        if not self.was_error:
+            self.setIcon(self.icon_nothing_new)
 
-    def update_menu (self, mail):
-        total_unread_num, entries = mail[0]
+    def update_menu (self, state):
+        with state.lock:
+            entries = state.entries[:]
+            is_error = state.is_error
+
+        if is_error:
+            self.setIcon(self.icon_error)
+            self.was_error = True
+            return
+
         new = new_entries(self.last_entries, entries)
         if not new:
+            if self.was_error:
+                self.setIcon(self.icon_nothing_new)
             return
 
         self.last_entries = entries
@@ -138,6 +160,8 @@ class SystemTrayIcon (QtGui.QSystemTrayIcon):
         
         self.menu.addSeparator()
         self.finish_menu()
+
+        self.was_error = False
 
     def finish_menu (self):
         action = self.menu.addAction("Quit")
@@ -204,6 +228,9 @@ def parse_args ():
     parser.add_argument('name')
     return parser.parse_args()
 
+class State (object):
+    pass
+
 def main():
     _test_diff()#; return
 
@@ -211,8 +238,11 @@ def main():
 
     url, login, password = read_cfg(args.config_path, args.name)
 
-    mail = [(0, [])]
-    thr = threading.Thread(target = fetch_mail_loop, args = [mail, url, login, password, args.interval], name = 'fetcher')
+    state = State()
+    state.lock = threading.Lock()
+    state.entries = []
+    state.is_error = False
+    thr = threading.Thread(target = fetch_mail_loop, args = [state, url, login, password, args.interval], name = 'fetcher')
     thr.daemon = True
     thr.start()
 
@@ -225,7 +255,7 @@ def main():
 
     intv = 1000
     def periodic_update_menu ():
-        trayIcon.update_menu(mail)
+        trayIcon.update_menu(state)
         QtCore.QTimer.singleShot(intv, periodic_update_menu)
     periodic_update_menu()
 
