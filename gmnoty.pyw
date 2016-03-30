@@ -111,12 +111,16 @@ class SystemTrayIcon (QtGui.QSystemTrayIcon):
         QtGui.QSystemTrayIcon.__init__(self, parent)
 
         #https://icons8.com/web-app/63/message
-        self.icon_has_new = QtGui.QIcon("mail_red.png")
-        self.icon_nothing_new = QtGui.QIcon("mail_gray.png")
-        self.icon_error = QtGui.QIcon("mail_error.png")
+        self.icon_has_new = QtGui.QIcon("icons/mail_red.png")
+        self.icon_nothing_new = QtGui.QIcon("icons/mail_gray.png")
+        self.icon_error = QtGui.QIcon("icons/mail_error.png")
+        self.icon_new = QtGui.QIcon("icons/mail_new.png")
+        self.icon_null = QtGui.QIcon()
+
         self.setIcon(self.icon_nothing_new)
 
         self.menu = QtGui.QMenu(parent)
+        self.menu.aboutToHide.connect(self._clear_entry_icons)
         self.setContextMenu(self.menu)
         self.finish_menu()
 
@@ -124,6 +128,11 @@ class SystemTrayIcon (QtGui.QSystemTrayIcon):
 
         self.last_entries = []
         self.was_error = False
+        self.new_entries = set()
+
+    def _clear_entry_icons (self):
+        for action in self.menu.actions():
+            action.setIcon(self.icon_null)
 
     def onTrayIconActivated(self, reason):
         if reason == QtGui.QSystemTrayIcon.Trigger:
@@ -132,6 +141,7 @@ class SystemTrayIcon (QtGui.QSystemTrayIcon):
         #     self.setIcon(self.icon_has_new)
         if not self.was_error:
             self.setIcon(self.icon_nothing_new)
+        self.new_entries = set()
 
     def update_menu (self, state):
         with state.lock:
@@ -146,21 +156,26 @@ class SystemTrayIcon (QtGui.QSystemTrayIcon):
         new = new_entries(self.last_entries, entries)
         if not new:
             if self.was_error:
-                self.setIcon(self.icon_nothing_new)
+                if self.new_entries:
+                    self.setIcon(self.icon_has_new)
+                else:
+                    self.setIcon(self.icon_nothing_new)
             return
 
+        for link in new:
+            self.new_entries.add(link)
         self.last_entries = entries
-
+        
         self.menu.clear()
-
         for name, title, link in entries:
             action = self.menu.addAction(u"%s — %s" % (title, name))
             action.triggered.connect(partial(webbrowser.open, link))
-        self.setIcon(self.icon_has_new)
-        
+            if link in self.new_entries:
+                action.setIcon(self.icon_new)
         self.menu.addSeparator()
         self.finish_menu()
-
+        
+        self.setIcon(self.icon_has_new)
         self.was_error = False
 
     def finish_menu (self):
